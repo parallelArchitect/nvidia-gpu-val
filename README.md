@@ -252,28 +252,26 @@ results/
 
 ## Architecture Overview
 
-See **Architecture.md** for the full system diagram and file-level boundaries.
+See the full system diagram and file-level boundaries in
+[`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
 
 PascalVal is intentionally split into two roles:
 
 ### Right Brain — Measurement
-
-* PCIe
-* Unified Memory
-* Compute
+- PCIe
+- Unified Memory
+- Compute
 
 ### Left Brain — Decision & Policy
-
-* Gate ordering
-* Evaluation
-* Verdict generation
-* Artifact writing
-
-See **Architecture.md** for the full execution flow diagram.
+- Gate ordering
+- Evaluation
+- Verdict generation
+- Artifact writing
 
 ---
 
 ## What PascalVal Is (and Is Not)
+
 
 **PascalVal is:**
 
