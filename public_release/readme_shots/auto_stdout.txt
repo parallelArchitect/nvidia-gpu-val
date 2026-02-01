@@ -1,0 +1,100 @@
+[pascalval] starting...
+╭─────────────────────╮
+│ PASCAL-GPU-VAL v1.0 │
+╰─────────────────────╯
+GPU: NVIDIA GeForce GTX 1080 (GP104)
+UUID: GPU-fbead7b5-da48-2ac7-52da-ce1c89b3fa76
+Initial State: 1607 MHz, 50°C, 41.8W
+╭──────────────────────────╮
+│ PHASE 1: PCIe Validation │
+╰──────────────────────────╯
+(Requires sudo - you may be prompted for password)
+
+════════════════════════════════════════════════════════════════
+GPU PCIe Diagnostic & Bandwidth Analysis v2.7.4
+════════════════════════════════════════════════════════════════
+GPU:   NVIDIA GeForce GTX 1080
+BDF:   00000000:01:00.0
+UUID:  GPU-fbead7b5-da48-2ac7-52da-ce1c89b3fa76
+
+▸ PCIe Link
+  Current: Gen3 x16
+  Max Cap: Gen3 x16
+  Theoretical (payload): 15.76 GB/s
+  Transfer Size: 1024 MiB
+
+▸ Peak Copy Bandwidth (explicit memcpy)
+  Host → Device: 12.30 GB/s
+  Device → Host: 12.54 GB/s
+
+▸ Telemetry (NVML, under load window)
+  Window: 5.0 s (50 samples @ 100 ms)
+  TX avg: 6.68 GB/s
+  RX avg: 5.87 GB/s
+  Combined: 12.55 GB/s
+
+▸ Verdict
+  State: NOMINAL
+  Reason: Throughput is below peak but within common host↔device memcpy variance
+  Efficiency: 79.63%
+
+▸ System Signals (informational)
+  MaxReadReq: 512 bytes
+  Persistence Mode: Disabled
+  ASPM Policy (sysfs string): [default] performance powersave powersupersave 
+  IOMMU: Platform default (no explicit flags)
+
+
+╭────────────────────────────╮
+│ PHASE 2: Memory Validation │
+╰────────────────────────────╯
+  Memory Bandwidth Results  
+┏━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Test        ┃  Bandwidth ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ Prefetch UM │ 228.7 GB/s │
+└─────────────┴────────────┘
+                 Compute Route                 
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Field    ┃                            Value ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ mode     │                             auto │
+│ selected │                           custom │
+│ reason   │ policy_gp104_sm61_custom_present │
+└──────────┴──────────────────────────────────┘
+╭───────────────────────────╮
+│ PHASE 3: SGEMM Validation │
+╰───────────────────────────╯
+       SGEMM Performance Results        
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric         ┃               Value ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│ Matrix Size    │           4096x4096 │
+│ Performance    │       8134.8 GFLOPS │
+│ Time           │            16.89 ms │
+│ vs Theoretical │ 84.8% (9590 GFLOPS) │
+│ Status         │                  OK │
+└────────────────┴─────────────────────┘
+           GPU State During Test           
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━┳━━━━━━━━┓
+┃ Phase        ┃   Clocks ┃ Temp ┃  Power ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━╇━━━━━━━━┩
+│ Cold Start   │ 1607 MHz │ 50°C │  41.8W │
+│ Before SGEMM │ 1873 MHz │ 52°C │  51.0W │
+│ During Test  │ 1873 MHz │ 57°C │ 137.4W │
+│ After        │ 1860 MHz │ 54°C │  52.0W │
+└──────────────┴──────────┴──────┴────────┘
+╭─────────────────────╮
+│ VALIDATION COMPLETE │
+╰─────────────────────╯
+       Summary       
+┏━━━━━━━━━┳━━━━━━━━━┓
+┃ Check   ┃ Verdict ┃
+┡━━━━━━━━━╇━━━━━━━━━┩
+│ PCIe    │      OK │
+│ Memory  │    PASS │
+│ Compute │      OK │
+│ Final   │    PASS │
+└─────────┴─────────┘
+Run logged: results/json/20260127_050356/run.json
+RID_AUTO=20260127_050356

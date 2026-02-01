@@ -1,0 +1,3 @@
+# Runtime dependencies (Linux)
+rich>=13.0.0             # CLI tables / panels (human-readable output)
+nvidia-ml-py>=11.525.0   # NVML bindings (pynvml) for live hardware facts
