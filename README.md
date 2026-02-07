@@ -1,15 +1,19 @@
  
  README
  
-# PascalVal — Linux NVIDIA GPU Health & Drift Validator
+# NVIDIA GPU Validation (PascalVal)
 
-PascalVal is a **Linux-based GPU validation and drift-evaluation tool** for **NVIDIA GPUs**.
+PascalVal is a Linux-based diagnostic tool that validates NVIDIA GPU health and system integration.
+Instead of chasing peak benchmark scores, it targets the three subsystems most responsible for
+slowdowns and instability:
 
-It is designed to answer one operational question:
+- **PCIe Transport** — link width, generation, effective bandwidth
+- **Memory Paths** — explicit transfers and Unified Memory behavior
+- **Compute Health** — SGEMM throughput, stability, and drift
 
-> **Is this GPU and platform operating within expected behavior, or has it drifted?**
+**Goal:** confidently answer one critical question:
 
-PascalVal validates **transport**, **memory residency behavior**, and **compute stability**, producing structured artifacts that can be accumulated and evaluated over time.
+Is this GPU—and its integration into this system—operating as expected?
 
 ---
 
@@ -63,7 +67,7 @@ Each execution produces a single evidence artifact:
 
 results/json/<run_id>/run.json
 
-````
+```
 
 This file is the **source of truth** for all analysis.
 
@@ -155,7 +159,7 @@ PascalVal is a Linux-based tool for NVIDIA GPUs.
 git clone https://github.com/parallelArchitect/pascal-gpu-val.git
 cd pascal-gpu-val
 pip install -r requirements.txt
-````
+```
 
 ---
 
@@ -308,11 +312,14 @@ MIT License
 ---
 
 **Author:**
-**Joe McLaren** — *Human–AI collaborative engineering*
+Joe McLaren — Human–AI collaborative engineering
 
-```
 
----
+For professional inquiries related to GPU validation,
+system diagnostics, or performance analysis, contact:
+
+gpu.validation@gmail.com
+
 
 
 
