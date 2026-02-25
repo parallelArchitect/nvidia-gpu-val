@@ -309,10 +309,9 @@ Typical uses include:
 
 MIT License
 
----
 
-**Author:**
-Joe McLaren — Human–AI collaborative engineering
+**Author:** Joe McLaren — Human-AI collaborative engineering
+
 
 
 ## Contact
