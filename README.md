@@ -315,11 +315,8 @@ MIT License
 Joe McLaren — Human–AI collaborative engineering
 
 
-For professional inquiries related to GPU validation,
-system diagnostics, or performance analysis, contact:
+## Contact
 
+For inquiries:    
 gpu.validation@gmail.com
-
-
-
 
