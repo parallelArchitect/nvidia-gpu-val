@@ -161,16 +161,6 @@ def _is_failish(v: str) -> bool:
     return v in ("FAIL", "FAILED", "ERROR")
 
 
-# -----------------------------------------------------------------------------
-# Sudo status
-# -----------------------------------------------------------------------------
-def _sudo_status() -> bool:
-    """True if sudo credentials are already cached (no prompt needed)."""
-    try:
-        r = subprocess.run(["sudo", "-n", "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        return r.returncode == 0
-    except Exception:
-        return False
 
 
 # -----------------------------------------------------------------------------
@@ -813,7 +803,7 @@ def _ensure_results_schema(obj: dict) -> None:
 
 def _assert_ship_contract(run: dict) -> None:
 
-    allowed = {"OK", "FAILED"}
+    allowed = {"OK", "FAILED", "FAIL", "UNKNOWN", "INCOMPLETE", "WARN", "ERROR"}
 
     results = run.get("results") if isinstance(run, dict) else None
 
@@ -890,8 +880,7 @@ def main() -> int:
     # PHASE 1: PCIe
     box("PHASE 1: PCIe Validation")
 
-    # Exactly ONE Phase-1 sudo line, printed BEFORE PCIe module runs, always flushed.
-    _print_line("(sudo already authorized)" if _sudo_status() else "(Requires sudo - you may be prompted for password)")
+    _print_line("PCIe diagnostic: unprivileged execution (no sudo required)")
 
     pcie = _run_pcie(caps, sink)
     pcie_v = _extract_verdict(pcie)
@@ -926,11 +915,9 @@ def main() -> int:
 
     comp_v = _extract_verdict(comp)
 
-    status = "OK"
-    failed_gate: Optional[str] = None
-    if _is_failish(comp_v):
-        status = "FAIL"
-        failed_gate = "compute"
+    # A completed process with an unknown/warning compute assessment is not validated OK.
+    status = "OK" if comp_v == "OK" else ("FAIL" if _is_failish(comp_v) else "INCOMPLETE")
+    failed_gate: Optional[str] = "compute" if status != "OK" else None
 
     box("VALIDATION COMPLETE")
     _render_summary(pcie_v, mem_v, comp_v, status)

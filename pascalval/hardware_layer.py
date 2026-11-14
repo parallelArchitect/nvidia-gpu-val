@@ -15,6 +15,39 @@ try:
 except:
     NVML_AVAILABLE = False
 
+def _cuda_sm_count(device_index: int):
+    """Read live multiprocessor count from the CUDA Driver API, without PyCUDA.
+
+    The numeric attribute is CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT
+    as defined by the CUDA Driver API; it is not a GPU-model heuristic.
+    """
+    try:
+        import ctypes
+        import ctypes.util
+
+        library = ctypes.util.find_library("cuda")
+        if not library:
+            return 0
+        drv = ctypes.CDLL(library)
+        drv.cuInit.argtypes = [ctypes.c_uint]
+        drv.cuInit.restype = ctypes.c_int
+        drv.cuDeviceGet.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int]
+        drv.cuDeviceGet.restype = ctypes.c_int
+        drv.cuDeviceGetAttribute.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int]
+        drv.cuDeviceGetAttribute.restype = ctypes.c_int
+        if drv.cuInit(0) != 0:
+            return 0
+        device = ctypes.c_int()
+        if drv.cuDeviceGet(ctypes.byref(device), device_index) != 0:
+            return 0
+        count = ctypes.c_int()
+        CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT = 16
+        if drv.cuDeviceGetAttribute(ctypes.byref(count), CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, device.value) != 0:
+            return 0
+        return count.value if count.value > 0 else 0
+    except (OSError, AttributeError, ValueError):
+        return 0
+
 hw = {"gpus": []}
 
 if NVML_AVAILABLE:
@@ -36,8 +69,8 @@ if NVML_AVAILABLE:
                 cc_major, cc_minor = 0, 0
             
             # Get SM count via PyCUDA (NVML doesn't expose it)
-            sm_count = 0
-            if PYCUDA_AVAILABLE:
+            sm_count = _cuda_sm_count(0)
+            if sm_count == 0 and PYCUDA_AVAILABLE:
                 try:
                     dev = cuda.Device(0)
                     sm_count = dev.get_attribute(cuda.device_attribute.MULTIPROCESSOR_COUNT)

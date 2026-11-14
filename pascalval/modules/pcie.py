@@ -15,7 +15,7 @@ def run_all(gpu_caps, **kwargs):
     
     # Run tool and capture output
     result = subprocess.run(
-        ["sudo", str(binary), "1024", "--all-gpus"],
+        [str(binary), "1024", "--all-gpus"],
         capture_output=True,
         text=True
     )

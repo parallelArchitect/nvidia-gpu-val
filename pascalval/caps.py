@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any, Dict
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from .pascal_kb import PascalKnowledgeBase
@@ -158,7 +159,7 @@ def get_gpu_raw_data(device_id: int = 0) -> Dict[str, Any]:
     # 1) hardware_layer JSON (best-effort)
     try:
         result = subprocess.run(
-            ["python3", str(hw_script)],
+            [sys.executable, str(hw_script)],
             capture_output=True,
             text=True,
             timeout=8,
