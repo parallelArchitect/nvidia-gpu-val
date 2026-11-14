@@ -138,124 +138,73 @@ class PascalKnowledgeBase:
         self.pci_map = PCI_TO_SILICON
     
     def interpret_gpu(self, raw_data: Dict) -> Dict:
-        """
-        Take raw sensor data, add intelligence
-        
-        Input: Raw data from hardware_layer.py
-        Output: Interpreted capabilities with physical limits
-        """
-        
-        # Identify silicon from PCI ID
-        pci_id = raw_data.get("pci_device_id", "unknown")
-        pci_id_norm = str(pci_id).strip().lower()
-        silicon_id = self.pci_map.get(pci_id_norm, "UNKNOWN")
-        
-        # Get physical limits for this silicon
+        """Enrich driver facts using only known, source-backed Pascal specifications."""
+        pci_id = str(raw_data.get("pci_device_id") or "").strip().lower()
+        silicon_id = self.pci_map.get(pci_id, "UNKNOWN")
         limits = self.silicon_limits.get(silicon_id, {})
-        
-        # Calculate actual CUDA cores (if we have SM count)
-        compute_cap = f"{raw_data.get('compute_capability_major', 0)}.{raw_data.get('compute_capability_minor', 0)}"
+        major = raw_data.get("compute_capability_major")
+        minor = raw_data.get("compute_capability_minor")
+        compute_cap = f"{major}.{minor}" if major is not None and minor is not None else "UNKNOWN"
         cores_per_sm = self._get_cores_per_sm(compute_cap)
-        sm_count = raw_data.get("multiprocessor_count", 0)
-        total_cores = sm_count * cores_per_sm
-        
-        # Build interpreted capabilities
-        interpreted = {
-            # Pass through raw data
+        sm_count = raw_data.get("multiprocessor_count")
+        total_cores = (int(sm_count) * cores_per_sm) if cores_per_sm is not None and sm_count is not None else None
+        known_vram_gb = limits.get("max_vram_gb")
+        physical_max_mb = known_vram_gb * 1024 if known_vram_gb is not None else None
+        free_mb = raw_data.get("memory_free_mb")
+        # Memory planning uses measured free VRAM; never substitute a model-size default.
+        available_mb = min(free_mb, physical_max_mb) if free_mb is not None and physical_max_mb is not None else free_mb
+        safe_max = int(available_mb * 0.95) if available_mb is not None and available_mb > 0 else 0
+        fp16_crippled = limits.get("fp16_crippled")
+        return {
             **raw_data,
-            
-            # Add silicon identification
             "silicon_id": silicon_id,
             "compute_capability": compute_cap,
-            
-            # Add calculated values
             "cuda_cores_total": total_cores,
             "cores_per_sm": cores_per_sm,
-            
-            # Add physical limits from knowledge base
-            "physical_max_vram_mb": limits.get("max_vram_gb", 0) * 1024,
-            "physical_max_cores": limits.get("max_cuda_cores", 0),
-            "physical_memory_bus_bits": limits.get("memory_bus_bits", 0),
-            "physical_l2_cache_kb": limits.get("l2_cache_kb", 0),
-            
-            # Add performance characteristics
-            "fp16_performance": "crippled" if limits.get("fp16_crippled", True) else "full",
-            "fp64_ratio": limits.get("fp64_ratio", 1/32),
-            
-            # Calculate safe test maximum (95% of smaller: physical max or free memory)
-            "safe_test_max_mb": int(min(
-                limits.get("max_vram_gb", 8) * 1024 * 0.95,  # 95% of physical
-                raw_data.get("memory_free_mb", 0) * 0.95      # 95% of free
-            )),
+            "physical_max_vram_mb": physical_max_mb,
+            "physical_max_cores": limits.get("max_cuda_cores"),
+            "physical_memory_bus_bits": limits.get("memory_bus_bits"),
+            "physical_l2_cache_kb": limits.get("l2_cache_kb"),
+            "fp16_performance": ("crippled" if fp16_crippled else "full") if fp16_crippled is not None else "unknown",
+            "fp64_ratio": limits.get("fp64_ratio"),
+            "safe_test_max_mb": safe_max,
         }
-        
-        return interpreted
+
     
-    def _get_cores_per_sm(self, compute_cap: str) -> int:
-        """
-        Get CUDA cores per SM by compute capability
-        Source: CUDA Programming Guide
-        """
-        if compute_cap.startswith("6.0"):
-            return 64   # GP100
-        elif compute_cap.startswith("6."):
-            return 128  # GP102/104/106/107
-        return 128  # Default for Pascal
+    def _get_cores_per_sm(self, compute_cap: str) -> Optional[int]:
+        """Only derive CUDA cores/SM for documented Pascal compute capabilities."""
+        if compute_cap == "6.0":
+            return 64
+        if compute_cap in ("6.1", "6.2"):
+            return 128
+        return None
+
     
     def validate_memory_test(self, test_size_mb: int, interpreted_caps: Dict) -> Dict:
-        """
-        Validate if memory test is physically possible
-        
-        Returns:
-            {
-                "allowed": bool,
-                "reason": str,
-                "message": str,
-                "suggestion": str (if not allowed)
-            }
-        """
-        physical_max_mb = interpreted_caps["physical_max_vram_mb"]
-        free_mb = interpreted_caps.get("memory_free_mb", 0)
-        silicon_id = interpreted_caps["silicon_id"]
-        
-        # Check 1: Exceeds physical silicon limits?
-        if test_size_mb > physical_max_mb:
-            return {
-                "allowed": False,
-                "reason": "PHYSICALLY_IMPOSSIBLE",
-                "message": (
-                    f"Test requests {test_size_mb}MB but {silicon_id} "
-                    f"physically limited to {physical_max_mb}MB maximum"
-                ),
-                "suggestion": f"Test with up to {int(physical_max_mb * 0.9)}MB instead",
-                "physical_limit_mb": physical_max_mb,
-            }
-        
-        # Check 2: Exceeds available free memory?
+        """Check measured free VRAM and documented physical limits when available."""
+        physical_max_mb = interpreted_caps.get("physical_max_vram_mb")
+        free_mb = interpreted_caps.get("memory_free_mb")
+        silicon_id = interpreted_caps.get("silicon_id", "UNKNOWN")
+        if test_size_mb <= 0:
+            return {"allowed": False, "reason": "INVALID_TEST_SIZE", "message": "Test size must be positive"}
+        if physical_max_mb is not None and test_size_mb > physical_max_mb:
+            return {"allowed": False, "reason": "PHYSICALLY_IMPOSSIBLE",
+                    "message": f"Test requests {test_size_mb}MB but {silicon_id} physically limited to {physical_max_mb}MB maximum",
+                    "suggestion": f"Test with up to {int(physical_max_mb * 0.9)}MB instead",
+                    "physical_limit_mb": physical_max_mb}
+        if free_mb is None:
+            return {"allowed": False, "reason": "FREE_MEMORY_UNKNOWN",
+                    "message": "Cannot authorize a memory allocation without measured free memory"}
         if test_size_mb > free_mb:
-            return {
-                "allowed": False,
-                "reason": "INSUFFICIENT_FREE_MEMORY",
-                "message": (
-                    f"Test requests {test_size_mb}MB but only {free_mb}MB free"
-                ),
-                "suggestion": f"Test with up to {int(free_mb * 0.9)}MB instead",
-                "free_memory_mb": free_mb,
-            }
-        
-        # Check 3: Warning for high utilization (>95% of physical)
+            return {"allowed": False, "reason": "INSUFFICIENT_FREE_MEMORY",
+                    "message": f"Test requests {test_size_mb}MB but only {free_mb}MB free",
+                    "suggestion": f"Test with up to {int(free_mb * 0.9)}MB instead",
+                    "free_memory_mb": free_mb}
         warnings = []
-        if test_size_mb > (physical_max_mb * 0.95):
-            warnings.append(
-                f"High utilization: {test_size_mb}MB is "
-                f"{(test_size_mb/physical_max_mb)*100:.1f}% of physical maximum"
-            )
-        
-        return {
-            "allowed": True,
-            "reason": "OK",
-            "warnings": warnings,
-        }
+        if physical_max_mb and test_size_mb > physical_max_mb * 0.95:
+            warnings.append(f"High utilization: {test_size_mb}MB is {(test_size_mb/physical_max_mb)*100:.1f}% of physical maximum")
+        return {"allowed": True, "reason": "OK", "warnings": warnings}
+
     
     def plan_memory_tests(self, interpreted_caps: Dict) -> List[int]:
         """
@@ -277,163 +226,52 @@ class PascalKnowledgeBase:
         
         return test_sizes
     
-    def get_optimal_sgemm_size(self, interpreted_caps: Dict) -> int:
-        """
-        Calculate optimal SGEMM matrix size based on L2 cache
-        
-        Intelligence: Size matrix to fit in L2 cache for best performance
-        Too small: Overhead dominates
-        Too large: Cache thrashing
-        Optimal: Fits in L2 cache
-        """
-        l2_cache_kb = interpreted_caps.get("physical_l2_cache_kb", 2048)
-        
-        # Rule: Matrix should fit in L2 cache
-        # Matrix size N×N×sizeof(float) should be ≤ L2 cache
-        # N² × 4 bytes ≤ L2_KB × 1024
-        # N ≤ sqrt(L2_KB × 1024 / 4)
-        
+    def get_optimal_sgemm_size(self, interpreted_caps: Dict) -> Optional[int]:
+        """Return an L2-based suggestion only where L2 capacity is documented."""
         import math
+        l2_cache_kb = interpreted_caps.get("physical_l2_cache_kb")
+        if not l2_cache_kb or l2_cache_kb <= 0:
+            return None
         max_n = int(math.sqrt(l2_cache_kb * 1024 / 4))
-        
-        # Round to nearest power of 2 for alignment
-        optimal_n = 1
-        while optimal_n * 2 <= max_n:
-            optimal_n *= 2
-        
-        return optimal_n
+        n = 1
+        while n * 2 <= max_n:
+            n *= 2
+        return n
+
     
     def get_baseline_performance(self, interpreted_caps: Dict) -> Dict:
+        """Capability discovery must not run kernels or invent measured baselines.
+
+        Historical analyzer owns baseline estimation from verified, per-GPU run evidence.
         """
-        Get realistic performance baselines - ACTUALLY MEASURED
-        
-        Flow:
-        1. Check cache (~/.pascalval_baseline_{UUID}.json)
-        2. If cached and recent (< 24h): use it
-        3. If no cache or stale: RUN ACTUAL KERNEL and measure
-        4. Save measurement to cache
-        
-        Returns REAL measured performance, not fake hardcoded values
-        """
-        import subprocess
-        import re
-        import json
-        from pathlib import Path
-        from datetime import datetime
-        
-        silicon_id = interpreted_caps["silicon_id"]
-        cores = interpreted_caps["cuda_cores_total"]
-        # Use NVIDIA official boost clock from knowledge base
-        limits = self.silicon_limits.get(silicon_id, {})
-        clock_mhz = interpreted_caps.get("clock_sm_mhz") or limits.get("boost_clock_mhz", 1500)
-        gpu_uuid = interpreted_caps.get("uuid", "unknown")
-        
-        # Calculate theoretical peak
-        theoretical_gflops = (cores * clock_mhz * 2) / 1000
-        
-        # Cache file location
-        cache_dir = Path.home() / ".pascalval"
-        cache_dir.mkdir(exist_ok=True)
-        cache_file = cache_dir / f"baseline_{silicon_id}.json"
-        
-        # Try to load cached measurement
-        cached_baseline = None
-        if cache_file.exists():
-            try:
-                with open(cache_file) as f:
-                    cached = json.load(f)
-                
-                # Check if cache is recent (< 24 hours)
-                cache_age_hours = (datetime.now().timestamp() - cached['timestamp']) / 3600
-                
-                if cache_age_hours < 24:
-                    cached_baseline = cached['measured_gflops']
-            except:
-                pass
-        
-        # If no valid cache, ACTUALLY MEASURE
-        if cached_baseline is None:
-            # Find SGEMM binary
-            binary_path = Path(__file__).parent.parent / "public_release" / "pascalval_sgemm_public"
-            
-            if binary_path.exists():
-                try:
-                    # RUN ACTUAL KERNEL
-                    result = subprocess.run(
-                        [str(binary_path), "4096", "5"],
-                        capture_output=True,
-                        text=True,
-                        timeout=60
-                    )
-                    
-                    # Parse REAL output
-                    match = re.search(r'GFLOPS=([\d.]+)', result.stdout)
-                    if match:
-                        measured_gflops = float(match.group(1))
-                        
-                        # Save to cache
-                        cache_data = {
-                            'measured_gflops': measured_gflops,
-                            'timestamp': datetime.now().timestamp(),
-                            'silicon_id': silicon_id,
-                            'gpu_uuid': gpu_uuid,
-                        }
-                        
-                        with open(cache_file, 'w') as f:
-                            json.dump(cache_data, f, indent=2)
-                        
-                        cached_baseline = measured_gflops
-                        measured_source = "Just measured with kernel"
-                    else:
-                        # Measurement failed, use fallback
-                        cached_baseline = theoretical_gflops * 0.75
-                        measured_source = "Measurement failed, using 75% theoretical"
-                except:
-                    # Kernel failed, use fallback
-                    cached_baseline = theoretical_gflops * 0.75
-                    measured_source = "Kernel not available, using 75% theoretical"
-            else:
-                # Binary not found, use fallback
-                cached_baseline = theoretical_gflops * 0.75
-                measured_source = "Binary not found, using 75% theoretical"
-        else:
-            measured_source = f"Cached measurement from {cache_file.name}"
-        
-        realistic_baseline_gflops = cached_baseline
-        
         return {
-            "silicon_id": silicon_id,
-            "theoretical_fp32_gflops": theoretical_gflops,
-            "realistic_baseline_gflops": realistic_baseline_gflops,
-            "healthy_range_min_gflops": realistic_baseline_gflops * 0.90,
-            "healthy_range_max_gflops": theoretical_gflops * 0.90,
-            "measured_source": measured_source,
-            "cache_file": str(cache_file),
-            "note": "Baseline from ACTUAL measurement, cached for 24h",
+            "silicon_id": interpreted_caps.get("silicon_id", "UNKNOWN"),
+            "theoretical_fp32_gflops": None,
+            "realistic_baseline_gflops": None,
+            "healthy_range_min_gflops": None,
+            "healthy_range_max_gflops": None,
+            "measured_source": "unavailable_not_measured",
+            "cache_file": None,
+            "note": "No measurement performed during capability discovery; use historical run analyzer",
         }
+
     
-    def check_feature_support(self, feature: str, interpreted_caps: Dict) -> bool:
-        """
-        Check if feature is physically possible on this silicon
-        
-        Examples:
-        - Tensor cores: Only Volta+ (not Pascal)
-        - Full FP16: Only GP100 (not GP104/106/107)
-        - NVLink: Only GP100 (not consumer Pascal)
-        """
-        silicon_id = interpreted_caps["silicon_id"]
-        limits = self.silicon_limits.get(silicon_id, {})
-        
+    def check_feature_support(self, feature: str, interpreted_caps: Dict) -> Optional[bool]:
+        """False means known absent; None means not established by this Pascal KB."""
+        silicon_id = interpreted_caps.get("silicon_id")
+        limits = self.silicon_limits.get(silicon_id)
+        if limits is None:
+            return None
         feature_map = {
-            "tensor_cores": False,  # No Pascal has tensor cores
-            "rt_cores": False,  # No Pascal has RT cores
-            "nvlink": silicon_id == "GP100",  # Only GP100
-            "full_fp16": not limits.get("fp16_crippled", True),  # Only GP100
-            "full_fp64": silicon_id == "GP100",  # Only GP100 has 1:2 FP64
-            "ecc": silicon_id == "GP100",  # Only Tesla P100
+            "tensor_cores": False,
+            "rt_cores": False,
+            "nvlink": silicon_id == "GP100",
+            "full_fp16": not limits["fp16_crippled"],
+            "full_fp64": silicon_id == "GP100",
+            "ecc": silicon_id == "GP100",
         }
-        
-        return feature_map.get(feature, False)
+        return feature_map.get(feature)
+
 
 
 # =============================================================================

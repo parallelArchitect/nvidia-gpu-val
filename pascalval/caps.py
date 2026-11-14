@@ -145,6 +145,20 @@ def _nvml_pci_identity(device_index: int = 0) -> Dict[str, Any]:
         }
 
 
+def _nvml_free_memory_mb(device_index: int):
+    """Return actual current free VRAM or None when unavailable."""
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(device_index)
+            return int(pynvml.nvmlDeviceGetMemoryInfo(handle).free // (1024**2))
+        finally:
+            pynvml.nvmlShutdown()
+    except Exception:
+        return None
+
+
 def get_gpu_raw_data(device_id: int = 0) -> Dict[str, Any]:
     """
     RIGHT BRAIN:
@@ -175,7 +189,7 @@ def get_gpu_raw_data(device_id: int = 0) -> Dict[str, Any]:
                     "name": gpu.get("name", "Unknown GPU"),
                     "uuid": gpu.get("uuid", "unknown"),
                     "memory_total_mb": int(gpu.get("vram_bytes", 0) // (1024**2)),
-                    "memory_free_mb": int(gpu.get("vram_bytes", 0) // (1024**2)),
+                    "memory_free_mb": None,
                     "multiprocessor_count": int(gpu.get("multiprocessor_count", 0)),
                     "compute_capability_major": int(gpu.get("compute_capability_major", 0)),
                     "compute_capability_minor": int(gpu.get("compute_capability_minor", 0)),
@@ -205,7 +219,7 @@ def get_gpu_raw_data(device_id: int = 0) -> Dict[str, Any]:
     raw.setdefault("name", "Unknown GPU")
     raw.setdefault("uuid", "unknown")
     raw.setdefault("memory_total_mb", 0)
-    raw.setdefault("memory_free_mb", raw.get("memory_total_mb", 0))
+    raw["memory_free_mb"] = _nvml_free_memory_mb(device_id)
 
     return raw
 
@@ -257,21 +271,21 @@ def probe_caps(device_id: int = 0) -> Dict[str, Any]:
         "pci_bus_id": raw_data.get("pci_bus_id"),
 
         # Hardware specs
-        "cuda_cores_total": interpreted.get("cuda_cores_total", 0),
+        "cuda_cores_total": interpreted.get("cuda_cores_total"),
         "multiprocessor_count": interpreted.get("multiprocessor_count", 0),
-        "cores_per_sm": interpreted.get("cores_per_sm", 0),
+        "cores_per_sm": interpreted.get("cores_per_sm"),
 
         # Memory info
         "memory_total_mb": interpreted.get("memory_total_mb", 0),
         "memory_free_mb": interpreted.get("memory_free_mb", 0),
-        "physical_max_vram_mb": interpreted.get("physical_max_vram_mb", 0),
+        "physical_max_vram_mb": interpreted.get("physical_max_vram_mb"),
         "safe_test_max_mb": interpreted.get("safe_test_max_mb", 0),
         "memory_bus_bits": interpreted.get("physical_memory_bus_bits", 0),
 
         # Performance characteristics
-        "l2_cache_kb": interpreted.get("physical_l2_cache_kb", 0),
+        "l2_cache_kb": interpreted.get("physical_l2_cache_kb"),
         "fp16_performance": interpreted.get("fp16_performance", "unknown"),
-        "fp64_ratio": interpreted.get("fp64_ratio", 0.0),
+        "fp64_ratio": interpreted.get("fp64_ratio"),
 
         # Current state
         "temperature_c": interpreted.get("temperature_c"),
@@ -285,7 +299,7 @@ def probe_caps(device_id: int = 0) -> Dict[str, Any]:
         "recommended_tests": {
             "memory_sizes_mb": memory_test_plan,
             "optimal_sgemm_matrix_size": optimal_sgemm_n,
-            "sgemm_reason": f"Fits in {interpreted.get('physical_l2_cache_kb', 0)}KB L2 cache",
+            "sgemm_reason": (f"Fits in {interpreted['physical_l2_cache_kb']}KB L2 cache" if optimal_sgemm_n is not None else "L2 capacity unknown; no recommendation"),
         },
 
         # Performance baselines
